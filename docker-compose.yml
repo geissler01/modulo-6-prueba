@@ -1,0 +1,276 @@
+name: cluster-localhost
+
+# ------- Reutilizable master ---------
+x-airflow-common: &airflow-common
+  build:
+    context: .
+  env_file:
+    - ./envs/.env.global
+    - ./envs/.env.master
+  user: "${AIRFLOW_UID:-1000}:0"
+  volumes:
+    - ./pipelines/dags:/opt/airflow/dags:ro
+    - ./pipelines/plugins:/opt/airflow/plugins
+    - ./data/logs:/opt/airflow/logs
+    - ./data/config:/opt/airflow/config
+    - ./sources:/opt/airflow/sources #
+    - ./docs/EDA:/opt/airflow/docs #
+    - ./pipelines/tasks:/opt/airflow/tasks:ro
+
+services:
+  # ************************************************
+  #           Bade de datos - postgres
+  # ************************************************  
+  postgres:
+    image: postgres:18-alpine
+    container_name: core-postgres
+    restart: unless-stopped
+    shm_size: 256mb # Memoria Compartida (/dev/shm). Evita caídas (SIGBUS) por consultas pesadas. Por defecto Docker da 64MB. En prod: 25% a 50% de la RAM del contenedor.
+    env_file:
+      - ./envs/.env.db
+    ports:
+      - "${POSTGRES_PORT_EXTERNAL:-5454}:${PGPORT:-5432}"
+    volumes:
+      - vol-postgres-prueba:/var/lib/postgresql/data
+    command: >
+      postgres  -c shared_buffers=256MB  -c work_mem=16MB  -c max_connections=150
+    # explicacion: Memoria para caché (128 por defecto), Operaciones (4mb), maximo de conexiones permitidas en simultaneo (100). -c es de configuracion, para sobreescribir
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ] # "CMD-SHELL" me permite usar las variables de entorno
+      interval: 1m30s # cada cuanto se ejecuta el test
+      timeout: 30s # tiempo de espera a la respuesta de la db
+      retries: 5 # numero de intentos antes de marcar unhealth
+      start_period: 30s # periodo de gracia para empezar a contar retries
+
+  # ************************************************
+  #           PROXY NPM
+  # ************************************************ 
+  proxy-npm:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: proxy-npm
+    restart: unless-stopped
+    env_file:
+      - ./envs/.env.proxy
+    ports:
+      - "81:81" # para ver la UI
+      - "80:80"
+      - "443:443"
+    # 80 y 443 puertos expuestos al host
+    volumes:
+      - ./data/proxy/data:/data
+      - ./data/proxy/letsencrypt:/etc/letsencrypt
+    healthcheck:
+      test: [ "CMD", "/bin/check-health" ]
+      interval: 45s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  # ************************************************
+  #           RabbitMQ
+  # ************************************************ 
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    container_name: broker-rabbitmq
+    restart: unless-stopped
+    mem_limit: 1g # <-- Limita la memoria física máxima del contenedor a 1 Gigabyte
+
+    env_file:
+      - ./envs/.env.broker
+    # ports:
+    #   - "5672:5672" # No es necesario para el funcioamiento del cluster, solo si necesitamos acceder desde fuera de docker
+    #   - "${RABBITMQ_PORT_UI}:15672"
+    volumes:
+      - broker_rabbitmq_prueba:/var/lib/rabbitmq
+      - ./data/broker/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+
+  # ************************************************
+  #           BLOQUE AIRFLOW MASTER
+  # ************************************************
+  # REVISAR ESTE SERVICIO
+  fix-permissions:
+    image: alpine:latest
+    user: "0:0" # Corre como root de forma temporal
+    container_name: airflow-init-fix
+    volumes:
+      - ./data:/mnt/data
+    # Cambia el dueño a 1000:1000 y se apaga inmediatamente
+    command: chown -R 1000:1000 /mnt/data
+
+  # ---------- MASTER - INIT ----------
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    # user: "0:0"
+    command: |
+      bash -c "
+        until airflow db check; do
+          echo 'Waiting for metadata db...'
+          sleep 2
+        done
+        airflow db migrate
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy # servicios que no terminan
+      fix-permissions:
+        condition: service_completed_successfully # servicios que terminan
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1G
+
+  # ---------- API-SERVER ----------
+  airflow-apiserver:
+    <<: *airflow-common
+    container_name: airflow-apiserver
+    command: airflow api-server
+    # ports:
+    # - "${AIRFLOW_UI_PORT}:8080" # no es necesario gracias al NPM
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1G
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ---------- SCHEDULER ----------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: airflow scheduler
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy # El scheduler NO arranca hasta que RabbitMQ pase su examen médico
+      airflow-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 2G
+
+  # ---------- TRIGGER ----------
+  airflow-trigger:
+    <<: *airflow-common
+    container_name: airflow-trigger
+    command: airflow triggerer
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD-SHELL", "airflow jobs check --job-type TriggererJob" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ---------- DAG PROCESOR ----------
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: airflow-dag-processor
+    command: airflow dag-processor
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1G
+    healthcheck:
+      test: [ "CMD-SHELL", "airflow jobs check --job-type DagProcessorJob" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ---------- FLOWER ----------
+  celery-flower:
+    <<: *airflow-common
+    container_name: airflow-flower
+    command: airflow celery flower
+    # ports:
+    #   - "${FLOWER_UI_PORT}:5555"
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5555')\"" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ************************************************
+  #           Workers
+  # ************************************************
+  airflow-worker:
+
+    build:
+      context: .
+    env_file:
+      - ./envs/.env.global
+      - ./envs/.env.worker
+    user: "${AIRFLOW_UID:-1000}:0"
+    volumes:
+      - ./pipelines/dags:/opt/airflow/dags:ro
+      - ./pipelines/plugins:/opt/airflow/plugins
+      - ./data/logs:/opt/airflow/logs
+      - ./data/config:/opt/airflow/config
+      - ./sources:/opt/airflow/sources
+      - ./docs/EDA:/opt/airflow/docs
+      - ./pipelines/tasks:/opt/airflow/tasks:ro
+
+    # ports:
+    #   - "8793:8793" # logs
+    # es el puerto para que api-server pueda ver los logs
+    command: >
+      bash -c "
+        airflow celery worker --autoscale=4,1 --queues=${QUEUES:-default}
+      "
+    restart: unless-stopped
+    deploy:
+      replicas: ${WORKER_REPLICAS:-3}
+      resources:
+        limits:
+          cpus: '0.9'
+          memory: 2G
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD-SHELL", "celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d celery@$$HOSTNAME" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# declarando volumenes
+volumes:
+  vol-postgres-prueba:
+  broker_rabbitmq_prueba:

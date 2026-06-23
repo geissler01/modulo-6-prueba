@@ -1,0 +1,16 @@
+# Carpetas de datos y logs (generados por los contenedores)
+/data/*
+
+# Excepciones dentro de data (configuraciones que SI deben subirse)
+!/data/broker/
+/data/broker/*
+!/data/broker/rabbitmq.conf
+
+# Variables de entorno
+.env
+envs/.env*
+!envs/.env.example
+
+# Archivos de python compilados
+__pycache__/
+*.pyc

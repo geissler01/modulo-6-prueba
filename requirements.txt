@@ -1,0 +1,9 @@
+apache-airflow-providers-amazon 
+apache-airflow-providers-celery 
+apache-airflow-providers-postgres 
+kaggle 
+psycopg2-binary 
+celery
+pandas
+ydata-profiling
+openpyxl
