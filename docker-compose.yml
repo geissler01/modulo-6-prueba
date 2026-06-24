@@ -16,6 +16,7 @@ x-airflow-common: &airflow-common
     - ./sources:/opt/airflow/sources #
     - ./docs/EDA:/opt/airflow/docs #
     - ./pipelines/tasks:/opt/airflow/tasks:ro
+    - ./pipelines/dbt_datamart:/opt/airflow/dbt_datamart:ro
 
 services:
   # ************************************************
@@ -245,6 +246,7 @@ services:
       - ./sources:/opt/airflow/sources
       - ./docs/EDA:/opt/airflow/docs
       - ./pipelines/tasks:/opt/airflow/tasks:ro
+      - ./pipelines/dbt_datamart:/opt/airflow/dbt_datamart:ro
 
     # ports:
     #   - "8793:8793" # logs

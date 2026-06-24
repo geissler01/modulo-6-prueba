@@ -140,7 +140,7 @@ with DAG(
     # ---------------------------------------------------------
     task_dbt_run = BashOperator(
         task_id='run_dbt_gold_models',
-        bash_command='dbt run --project-dir /opt/airflow/dags/dbt_datamart --profiles-dir /opt/airflow/dags/dbt_datamart',
+        bash_command='/home/airflow/.local/bin/dbt run --project-dir /opt/airflow/dbt_datamart --profiles-dir /opt/airflow/dbt_datamart',
         env={
             'DBT_HOST': '{{ conn.results_postgres_db.host }}',
             'DBT_USER': '{{ conn.results_postgres_db.login }}',
