@@ -16,6 +16,8 @@ Bienvenido al repositorio del proyecto **DataMart S.A.S.**. Este proyecto implem
 
 El proyecto está diseñado siguiendo las mejores prácticas de **Infrastructure as Code (IaC)** e implementa una **Arquitectura Medallón (Bronze, Silver, Gold)**. 
 
+![Flujo del Pipeline ETL](docs/etl_datamart_pipeline-graph.png)
+
 Para un análisis profundo de la arquitectura técnica subyacente (Celery, Workers, Proxy Nginx, configuración del clúster), por favor revisa [docs/README.md](docs/README.md).
 
 ---
@@ -62,14 +64,17 @@ Dentro del panel, configura los *Proxy Hosts* hacia los demás servicios siguien
 
 ---
 
-## Decisiones Técnicas y de Negocio
+## Decisiones Técnicas y de Negocio (Highlights)
 
-Para cumplir con los requerimientos de DataMart y solventar las ambigüedades en la fuente de datos, se han documentado meticulosamente todas las decisiones técnicas:
+Para cumplir con los estrictos requerimientos analíticos de DataMart, se resolvieron las siguientes ambigüedades en la fuente de datos (lee la documentación detallada en [Decisiones Técnicas](docs/decisions/TECHNICAL_DECISIONS.md)):
 
-1. **Resolución de Casos Ambiguos, Reglas de Negocio e Idempotencia:** 
-   - Lee el detalle sobre el manejo de clientes sin ID, las devoluciones (cantidades negativas), filtrado de precios inválidos y cómo el DAG asegura resultados idempotentes ante reejecuciones en nuestro documento de [Decisiones Técnicas](docs/decisions/TECHNICAL_DECISIONS.md).
-2. **Estrategia de Modelado de Datos (Medallion Architecture):**
-   - El Data Warehouse sigue una estructura progresiva: Bronze (Crudos), Silver (Limpios/Tipados) y Gold (Modelado Dimensional). Lee la justificación completa en la [Estrategia de Modelado](docs/decisions/data_modeling_strategy.md).
+1. **Manejo de Casos Ambiguos (Valores Nulos y Nombres):** 
+   - **`customer_id` nulo:** En lugar de eliminar las transacciones (lo que descuadraría el balance financiero), se catalogaron dinámicamente como transacciones de *"Guest"* para aislar su comportamiento de compra frente a usuarios registrados.
+   - **Descripciones inconsistentes:** Se implementó una regla que extrae siempre la última descripción válida agrupada por `stock_code` para garantizar catálogos unificados.
+2. **Garantía de Idempotencia:**
+   - Todo el flujo del DAG está diseñado para ser 100% idempotente. Ejecutar el pipeline múltiples veces para la misma fecha sobreescribirá correctamente las tablas (Drop & Replace en Silver, Materializaciones en dbt) sin duplicar registros transaccionales ni corromper las métricas.
+3. **Estrategia de Modelado de Datos (Medallion Architecture):**
+   - El Data Warehouse sigue una estructura progresiva: Bronze (Crudos sin procesar), Silver (Limpios/Tipados con reglas lógicas) y Gold (Modelado Dimensional listo para Business Intelligence). Lee la justificación completa en la [Estrategia de Modelado](docs/decisions/data_modeling_strategy.md).
 
 ## Modelo de Datos (Capa Gold)
 

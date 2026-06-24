@@ -59,6 +59,10 @@ def _apply_business_rules(df: pd.DataFrame, source_name: str) -> tuple[pd.DataFr
     # Forzar lowercase total en las cabeceras por buenas prácticas en BBDD
     df.columns = [c.lower() for c in df.columns]
 
+    # Eliminar columna 'index' si viene arrastrada desde el dataset original (como pasa en el Retail)
+    if 'index' in df.columns:
+        df = df.drop(columns=['index'])
+
     # 2. Fechas a UTC
     df['invoice_date'] = pd.to_datetime(df['invoice_date'], utc=True)
     

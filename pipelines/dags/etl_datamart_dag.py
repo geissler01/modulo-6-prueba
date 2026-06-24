@@ -181,14 +181,10 @@ with DAG(
     # Evitamos que los EDAs se crucen
     task_eda_ydata_ecommerce >> task_eda_manual_retail
 
-    # 5. EDA -> Limpieza Silver (Se ejecuta cuando acaben las dos tareas EDA anteriores)
-    task_eda_ydata_ecommerce >> task_silver_ecommerce
-    task_eda_ydata_retail >> task_silver_retail
+    # 5. EDA -> Limpieza Silver (Ambas en paralelo tras terminar los EDAs)
+    task_eda_ydata_retail >> [task_silver_ecommerce, task_silver_retail]
 
-    # Evitamos que Silver se cruce con el EDA del otro dataset
-    task_eda_ydata_retail >> task_silver_ecommerce 
-
-    # 6. Silver -> Unificación (Espera a que acaben las dos transformaciones Silver)
+    # 6. Silver -> Unificación (La fusión espera a que acaben las dos)
     [task_silver_ecommerce, task_silver_retail] >> task_silver_unify
     
     # 7. Unificación -> Modelado Dimensional dbt
