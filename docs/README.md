@@ -1,8 +1,8 @@
-# 🚀 Clúster Distribuido de Apache Airflow 3.x con Celery
+# Clúster Distribuido de Apache Airflow 3.x con Celery
 
 Este repositorio contiene la infraestructura como código (Docker Compose) para levantar un clúster distribuido, escalable y robusto de Apache Airflow 3.x. Está diseñado para separar responsabilidades emulando una arquitectura de nivel de producción.
 
-## 🏛️ Arquitectura del Sistema
+## Arquitectura del Sistema
 
 El clúster está compuesto por múltiples servicios que se comunican a través de una red interna de Docker.
 
@@ -47,7 +47,7 @@ graph TD
     RMQ ==>|Recibe tareas| W2
     RMQ ==>|Recibe tareas| W3
 ```
-## 📂 Decisiones de Infraestructura y Estructura de Directorios
+## Decisiones de Infraestructura y Estructura de Directorios
 
 Para mantener un entorno de grado de producción, la arquitectura separa estrictamente el código, los datos y las configuraciones para que sobrevivan a reinicios y actualizaciones. Todo esto se mapea a través de volúmenes de Docker:
 
@@ -60,7 +60,7 @@ Para mantener un entorno de grado de producción, la arquitectura separa estrict
   - `/data/proxy/`: Base de datos, configuraciones y certificados SSL (Let's Encrypt) para el Nginx Proxy Manager.
 - `/envs/`: Carpeta modularizada que contiene los archivos `.env` (secretos y variables de entorno), dividiendo limpiamente las responsabilidades (`.env.global` vs `.env.worker`).
 
-## 📦 Componentes del Clúster
+## Componentes del Clúster
 
 | Servicio | Imagen | Propósito |
 | :--- | :--- | :--- |
@@ -75,7 +75,7 @@ Para mantener un entorno de grado de producción, la arquitectura separa estrict
 | **airflow-flower** | `apache/airflow:3.2.0` | Interfaz gráfica dedicada exclusivamente a monitorear la salud y el estado de los workers de Celery. |
 | **proxy-npm** | `jc21/nginx-proxy-manager` | Proxy inverso para acceder al clúster limpiamente a través de nombres de dominio locales sin usar puertos. |
 
-## ⚙️ Estructura de Variables de Entorno (`/envs`)
+## Estructura de Variables de Entorno (/envs)
 
 El proyecto utiliza un patrón modular para la inyección de secretos y configuraciones:
 
@@ -85,7 +85,7 @@ El proyecto utiliza un patrón modular para la inyección de secretos y configur
 - `.env.master`: Configuraciones core (Auth Manager, Webserver, Dag Processor). Ojo: En Airflow 3, el rol de administrador es estrictamente `Admin` (con A mayúscula).
 - `.env.worker`: Variables específicas para inyectar a los workers de Celery (concurrencia, autoescalado).
 
-## 🌍 Guía de Instalación Universal (Windows, macOS, Linux)
+## Guía de Instalación Universal (Windows, macOS, Linux)
 
 Al estar basado 100% en contenedores, este clúster correrá de forma idéntica en cualquier sistema operativo. Sigue estos pasos para arrancar el proyecto desde cero:
 
@@ -116,7 +116,7 @@ Una vez que el comando finalice y todos los servicios estén en estado *Up* y *H
 
 ---
 
-## 🚀 Mantenimiento y Ejecución
+## Mantenimiento y Ejecución
 
 ### Arranque en Limpio (Recomendado)
 Para evitar el problema de colisión de candados en la base de datos (LockNotAvailable), siempre se recomienda usar la siguiente secuencia al realizar cambios estructurales:
@@ -132,7 +132,7 @@ Para revisar por qué un servicio específico falló (Ej. un worker):
 docker compose logs -f airflow-worker
 ```
 
-## 🛠️ Lecciones Aprendidas y Resoluciones de Conflictos
+## Lecciones Aprendidas y Resoluciones de Conflictos
 
 ### 1. RabbitMQ 4.3 vs Celery (Colas Transitorias)
 - **El Problema:** RabbitMQ 4.x deshabilitó por defecto la función `transient_nonexcl_queues` argumentando obsolescencia. Sin embargo, Celery (el corazón de nuestros Workers) requiere esta característica para su sistema de comunicación interno (el `pidbox`). Al arrancar, los Workers se estrellaban.
@@ -167,7 +167,7 @@ sequenceDiagram
 
 ---
 
-## 🔄 Ciclo de Vida de la Ejecución en Docker Compose
+## Ciclo de Vida de la Ejecución en Docker Compose
 
 Para entender cómo nace cada servicio dentro de nuestro clúster (por ejemplo, los workers o el scheduler), este es el flujo interno paso a paso:
 

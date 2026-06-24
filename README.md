@@ -60,10 +60,41 @@ Para cumplir con los requerimientos de DataMart y solventar las ambigüedades en
 
 ## Modelo de Datos (Capa Gold)
 
-El modelo de datos analítico en la capa Gold sigue un modelo en estrella, estructurando hechos (ventas) y dimensiones (productos, clientes, fechas) para responder eficientemente a las preguntas analíticas de negocio.
+El modelo de datos analítico en la capa Gold sigue un modelo en estrella, estructurando hechos (ventas) y dimensiones (productos, clientes) para responder eficientemente a las preguntas analíticas de negocio.
 
-**[Ver Diagrama del Modelo de Datos en dbdiagram.io](https://dbdiagram.io/d/TU_ID_AQUI)** 
-*(Nota: Añade tu enlace definitivo a dbdiagram.io aquí)*
+```mermaid
+erDiagram
+    fact_sales {
+        varchar invoice_no
+        varchar stock_code FK
+        varchar customer_id FK
+        date date_id
+        timestamp exact_timestamp
+        varchar country
+        int quantity
+        float unit_price
+        float gross_revenue
+        boolean is_return
+        varchar source_dataset
+    }
+
+    dim_customers {
+        varchar customer_id PK
+        boolean is_guest_customer
+        varchar customer_type
+    }
+
+    dim_products {
+        varchar stock_code PK
+        varchar description
+        varchar category
+        varchar provider_country
+        boolean is_active
+    }
+
+    fact_sales }|--|| dim_customers : "es realizada por"
+    fact_sales }|--|| dim_products : "incluye"
+```
 
 ## Consultas de Validación (Business Questions)
 

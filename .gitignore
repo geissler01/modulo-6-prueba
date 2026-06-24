@@ -6,9 +6,20 @@
 /data/broker/*
 !/data/broker/rabbitmq.conf
 
+!/data/proxy/
+
+
 # Variables de entorno
 .env
-envs/.env*
+# Ignorar todos los archivos .env reales dentro de la carpeta envs/
+envs/.env.airflow
+envs/.env.broker
+envs/.env.db
+envs/.env.global
+envs/.env.master
+envs/.env.proxy
+envs/.env.worker
+# Permitir subir el archivo de plantilla/ejemplo
 !envs/.env.example
 
 # Archivos de python compilados
