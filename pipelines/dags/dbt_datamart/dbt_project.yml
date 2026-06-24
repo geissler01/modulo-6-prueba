@@ -1,0 +1,17 @@
+name: 'datamart'
+version: '1.0.0'
+config-version: 2
+
+# Profile a usar definido en profiles.yml
+profile: 'datamart'
+
+# Rutas de los modelos
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Por defecto, todos los modelos de la carpeta datamart se materializarán como tablas físicas
+models:
+  datamart:
+    materialized: table

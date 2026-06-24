@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from airflow.models import Variable
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from db_utils import psql_insert_copy
 
 logger = logging.getLogger(__name__)
 SOURCES_DIR = Path("/opt/airflow/sources")
@@ -37,30 +38,7 @@ def download_kaggle_dataset(dataset_name: str):
     api.dataset_download_files(dataset_name, path=str(dest_path), unzip=True)
     logger.info(f"Descarga de {dataset_name} completada exitosamente.")
     logger.info("======================================================")
-    
     return str(dest_path)
-
-def psql_insert_copy(table, conn, keys, data_iter):
-    """
-    Ejecuta el comando COPY de PostgreSQL en lugar de múltiples INSERTs.
-    Mucho más veloz y escalable para DataFrames masivos.
-    """
-    # Obtiene la conexión subyacente de la base de datos
-    dbapi_conn = conn.connection
-    with dbapi_conn.cursor() as cur:
-        s_buf = io.StringIO()
-        writer = csv.writer(s_buf)
-        writer.writerows(data_iter)
-        s_buf.seek(0)
-        
-        columns = ', '.join(f'"{k}"' for k in keys)
-        if table.schema:
-            table_name = f"{table.schema}.{table.name}"
-        else:
-            table_name = table.name
-            
-        sql = f"COPY {table_name} ({columns}) FROM STDIN WITH CSV"
-        cur.copy_expert(sql=sql, file=s_buf)
 
 def ingest_to_bronze(dataset_name: str, table_name: str):
     """
@@ -98,7 +76,16 @@ def ingest_to_bronze(dataset_name: str, table_name: str):
                 logger.warning("Fallo al leer CSV en UTF-8, intentando con ISO-8859-1...")
                 df = pd.read_csv(file_path, encoding='ISO-8859-1')
         elif file_path.suffix == '.xlsx':
-            df = pd.read_excel(file_path)
+            try:
+                df = pd.read_excel(file_path, engine='openpyxl')
+            except Exception as e:
+                logger.warning(f"Error de archivo ZIP/XLSX moderno detectado: {e}. El archivo podría estar mal nombrado.")
+                logger.info("Intentando leerlo como archivo de Excel antiguo (.xls) usando xlrd...")
+                try:
+                    df = pd.read_excel(file_path, engine='xlrd')
+                except Exception as e_xlrd:
+                    logger.warning(f"Fallo también con xlrd: {e_xlrd}. Intentando leerlo como CSV por precaución...")
+                    df = pd.read_csv(file_path, encoding='latin1')
             
         logger.info(f"[{file_path.name}] Leídas {df.shape[0]} filas, {df.shape[1]} columnas.")
         
