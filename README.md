@@ -2,6 +2,16 @@
 
 Bienvenido al repositorio del proyecto **DataMart S.A.S.**. Este proyecto implementa una solución funcional de extremo a extremo, extrayendo datos transaccionales, transformándolos y cargándolos en un Data Warehouse (PostgreSQL) usando Apache Airflow en una arquitectura distribuida con Celery y Docker.
 
+## Estructura del Proyecto
+```text
+├── data/                  # Volúmenes persistentes (Logs, Configs, certificados proxy)
+├── docs/                  # Documentación de arquitectura, decisiones técnicas y EDA
+├── envs/                  # Variables de entorno modulares para cada servicio
+├── pipelines/             # Código fuente de Airflow (DAGs) y dbt (modelos SQL)
+├── sources/               # Datos crudos (archivos CSV descargados)
+├── docker-compose.yml     # Orquestación del clúster distribuido
+└── README.md              # Documentación principal
+```
 ## Arquitectura del Proyecto
 
 El proyecto está diseñado siguiendo las mejores prácticas de **Infrastructure as Code (IaC)** e implementa una **Arquitectura Medallón (Bronze, Silver, Gold)**. 
@@ -17,25 +27,28 @@ El entorno está 100% dockerizado y configurado para funcionar automáticamente 
 ### 1. Prerrequisitos
 - **Git**
 - **Docker y Docker Compose** instalados (Docker Desktop recomendado en Windows/macOS).
+- **Variables de Entorno:** Debes abrir el archivo `envs/.env.example` y crear todos los archivos individuales que ahí se detallan (`.env.global`, `.env.db`, `.env.broker`, `.env.proxy`, `.env.master`, `.env.worker`) dentro de la carpeta `envs/` reemplazando los placeholders por tus contraseñas y configuraciones.
 
 ### 2. Clonar e Iniciar
 ```bash
 git clone <URL_DEL_REPOSITORIO>
 cd <NOMBRE_CARPETA_DEL_PROYECTO>
 
-# Opcional: Renombra .env.example a .env si es necesario (el repositorio ya incluye los /envs listos para prueba local)
 # Levantar todos los servicios en segundo plano
 docker compose up -d
 ```
 *(Nota: La primera ejecución descargará las imágenes necesarias (Airflow, Postgres, RabbitMQ), lo que puede tomar varios minutos).*
 
-### 3. Verificar el Clúster
-Una vez finalice la instalación, puedes acceder a las interfaces:
-- **Airflow UI:** `http://localhost:80`
-- **Celery Flower (Monitor de Workers):** `http://localhost:81`
+### 3. Configurar Dominios Locales (Nginx Proxy Manager)
+El clúster usa un proxy inverso para direccionar el tráfico limpiamente. Accede al administrador del proxy:
+- **Administrador NPM:** `http://localhost:81` (Por defecto: `admin@example.com` / `changeme`)
+
+Dentro del panel, configura los *Proxy Hosts* hacia los demás servicios siguiendo la lógica `[nombre].localhost`. Ejemplos:
+- **Airflow UI:** Dominio `airflow.localhost` -> Apunta al contenedor `airflow-apiserver` en el puerto `8080`.
+- **Flower Monitor:** Dominio `flower.localhost` -> Apunta al contenedor `celery-flower` en el puerto `5555`.
 
 ### 4. Ejecutar el Pipeline ETL
-1. Abre la UI de Airflow (`http://localhost:80`). Los credenciales por defecto configurados en el contenedor init son `admin` / `admin`.
+1. Una vez configurado el proxy, abre la UI de Airflow ingresando a `http://airflow.localhost`. Los credenciales configurados por el contenedor init son `admin` / `admin123` (según configuraste en tu `.env.master`).
 2. **Validar Conexiones y Variables:** 
    El pipeline se encarga de crear la base de datos `db_geisler_prueba` y de configurar las conexiones y variables a través de scripts y variables de entorno al iniciar.
    - En la UI de Airflow, ve a **Admin -> Variables** y **Admin -> Connections** para confirmar que existen y están correctamente apuntadas.
