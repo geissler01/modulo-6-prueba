@@ -174,19 +174,21 @@ with DAG(
     task_download_ecommerce >> task_ingest_ecommerce
     task_download_retail >> task_ingest_retail
 
-    # 4. Ingesta -> Limpieza Silver (Pueden ejecutarse en paralelo entre sí)
-    task_ingest_ecommerce >> task_silver_ecommerce
-    task_ingest_retail >> task_silver_retail
-
-    # 5. Ingesta -> EDA (Ejecución estrictamente secuencial para cuidar la memoria RAM del PC)
-    # Ejecutamos EDA de Ecommerce primero, luego Retail. Ninguno bloquea a Silver.
+    # 4. Ingesta -> EDA (Ejecución estrictamente secuencial para cuidar la memoria)
     task_ingest_ecommerce >> task_eda_manual_ecommerce >> task_eda_ydata_ecommerce
     task_ingest_retail >> task_eda_manual_retail >> task_eda_ydata_retail
 
-    # Hacemos que la cadena del segundo EDA comience cuando acabe el primero
+    # Evitamos que los EDAs se crucen
     task_eda_ydata_ecommerce >> task_eda_manual_retail
 
-    # 6. Esperamos a que la limpieza Silver termine para unificarlas
+    # 5. EDA -> Limpieza Silver (Se ejecuta cuando acaben las dos tareas EDA anteriores)
+    task_eda_ydata_ecommerce >> task_silver_ecommerce
+    task_eda_ydata_retail >> task_silver_retail
+
+    # Evitamos que Silver se cruce con el EDA del otro dataset
+    task_eda_ydata_retail >> task_silver_ecommerce 
+
+    # 6. Silver -> Unificación (Espera a que acaben las dos transformaciones Silver)
     [task_silver_ecommerce, task_silver_retail] >> task_silver_unify
     
     # 7. Unificación -> Modelado Dimensional dbt
