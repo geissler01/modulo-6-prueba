@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.operators.bash import BashOperator
 
 # Importamos las tareas modulares
 from test_connections import test_kaggle_connection, test_postgres_connection
@@ -9,6 +9,7 @@ from setup_db import setup_data_warehouse
 from extract import download_kaggle_dataset, ingest_to_bronze
 from eda import generate_ydata_profile, generate_manual_eda
 from transform_silver import transform_ecommerce, transform_retail, unify_silver
+from business_queries import run_business_queries
 
 # =========================================================================
 # CONFIGURACIÓN DEL DAG
@@ -64,7 +65,7 @@ with DAG(
     task_download_retail = PythonOperator(
         task_id='download_retail_dataset',
         python_callable=download_kaggle_dataset,
-        op_kwargs={'dataset_name': 'lakshmi25npathi/online-retail-dataset'}
+        op_kwargs={'dataset_name': 'thedevastator/online-retail-transaction-data'}
     )
 
     # ---------------------------------------------------------
@@ -83,7 +84,7 @@ with DAG(
         task_id='ingest_bronze_retail',
         python_callable=ingest_to_bronze,
         op_kwargs={
-            'dataset_name': 'lakshmi25npathi/online-retail-dataset',
+            'dataset_name': 'thedevastator/online-retail-transaction-data',
             'table_name': 'online_retail'
         }
     )
@@ -140,37 +141,56 @@ with DAG(
     # ---------------------------------------------------------
     task_dbt_run = BashOperator(
         task_id='run_dbt_gold_models',
-        bash_command='/home/airflow/.local/bin/dbt run --project-dir /opt/airflow/dbt_datamart --profiles-dir /opt/airflow/dbt_datamart',
-        env={
-            'DBT_HOST': '{{ conn.results_postgres_db.host }}',
-            'DBT_USER': '{{ conn.results_postgres_db.login }}',
-            'DBT_PASS': '{{ conn.results_postgres_db.password }}',
-            'DBT_PORT': '{{ conn.results_postgres_db.port }}',
-            'DBT_DBNAME': 'db_geisler_prueba'
-        }
+        bash_command="""
+            export DBT_HOST='{{ conn.results_postgres_db.host }}'
+            export DBT_USER='{{ conn.results_postgres_db.login }}'
+            export DBT_PASS='{{ conn.results_postgres_db.password }}'
+            export DBT_PORT='{{ conn.results_postgres_db.port }}'
+            export DBT_DBNAME='db_geisler_prueba'
+            
+            dbt run --project-dir /opt/airflow/dbt_datamart --profiles-dir /opt/airflow/dbt_datamart
+        """
+    )
+
+    # ---------------------------------------------------------
+    # 7. FASE DE CONSULTAS DE NEGOCIO (Business Queries)
+    # ---------------------------------------------------------
+    task_business_queries = PythonOperator(
+        task_id='run_business_queries',
+        python_callable=run_business_queries,
     )
 
     # =========================================================================
     # ORQUESTACIÓN (DEPENDENCIAS)
     # =========================================================================
     
-    # --- FLUJO DE INGESTA (Comentado temporalmente para desarrollo ágil) ---
-    # task_test_kaggle >> task_test_postgres >> task_setup_dwh
-    # task_setup_dwh >> [task_download_ecommerce, task_download_retail]
-    # task_download_ecommerce >> task_ingest_ecommerce
-    # task_download_retail >> task_ingest_retail
-    # task_ingest_ecommerce >> [task_eda_ydata_ecommerce, task_eda_manual_ecommerce]
-    # task_ingest_retail >> [task_eda_ydata_retail, task_eda_manual_retail]
+    # 1. Pruebas -> Configuración de BD
+    [task_test_kaggle, task_test_postgres] >> task_setup_dwh
 
-    # --- FLUJO DE DESARROLLO ACTUAL ---
-    # Ejecutamos las tareas de EDA de forma ESTRICTAMENTE SECUENCIAL
-    # para evitar saturar la memoria RAM y las conexiones a Postgres.
-    task_eda_manual_ecommerce >> task_eda_ydata_ecommerce >> task_eda_manual_retail >> task_eda_ydata_retail
-    
-    # Posteriormente corremos la limpieza a Silver
-    # Aquí SÍ aprovechamos el paralelismo ya que cada tarea escribe en su propia tabla temporal
-    task_eda_ydata_retail >> [task_silver_ecommerce, task_silver_retail]
+    # 2. Configuración de BD -> Descargas Paralelas
+    task_setup_dwh >> [task_download_ecommerce, task_download_retail]
+
+    # 3. Descarga -> Ingesta (Se paralelizan individualmente)
+    task_download_ecommerce >> task_ingest_ecommerce
+    task_download_retail >> task_ingest_retail
+
+    # 4. Ingesta -> Limpieza Silver (Pueden ejecutarse en paralelo entre sí)
+    task_ingest_ecommerce >> task_silver_ecommerce
+    task_ingest_retail >> task_silver_retail
+
+    # 5. Ingesta -> EDA (Ejecución estrictamente secuencial para cuidar la memoria RAM del PC)
+    # Ejecutamos EDA de Ecommerce primero, luego Retail. Ninguno bloquea a Silver.
+    task_ingest_ecommerce >> task_eda_manual_ecommerce >> task_eda_ydata_ecommerce
+    task_ingest_retail >> task_eda_manual_retail >> task_eda_ydata_retail
+
+    # Hacemos que la cadena del segundo EDA comience cuando acabe el primero
+    task_eda_ydata_ecommerce >> task_eda_manual_retail
+
+    # 6. Esperamos a que la limpieza Silver termine para unificarlas
     [task_silver_ecommerce, task_silver_retail] >> task_silver_unify
     
-    # Finalmente, corremos el modelo de dbt
+    # 7. Unificación -> Modelado Dimensional dbt
     task_silver_unify >> task_dbt_run
+
+    # 8. DBT (Gold Layer) -> Consultas de Reglas de Negocio
+    task_dbt_run >> task_business_queries
